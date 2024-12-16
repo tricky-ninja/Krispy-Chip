@@ -16,7 +16,7 @@ int main()
     Chip8_VM cpu;
 
     init_vm(&cpu);
-    load_rom(&cpu, ASSETS_PATH "2-ibm-logo.ch8");
+    load_rom(&cpu, ASSETS_PATH "4-flags.ch8");
 
     int i = 0;
 

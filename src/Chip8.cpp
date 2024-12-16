@@ -75,7 +75,7 @@ void load_rom(Chip8_VM* cpu, const char* filepath)
 		}
 	}
 
-	if (bytesRead == 0) {
+	if (bytesRead == 0 && i == 0x200) {
 		std::cerr << "[-] Error reading the ROM file\n";
 	}
 
@@ -92,7 +92,7 @@ void update_timers(Chip8_VM* cpu)
 void cpu_cycle(Chip8_VM* cpu)
 {
 	uint16_t opcode = cpu->memory[cpu->programCounter] << 8 | cpu->memory[cpu->programCounter + 1];
-	//std::cout << std::hex << std::uppercase << opcode << "\n";
+	std::cout << std::hex << std::uppercase << opcode << "\n";
 	switch (opcode & 0xF000)
 	{
 
@@ -129,16 +129,31 @@ void cpu_cycle(Chip8_VM* cpu)
 		break;
 
 	case 0x3000:
-		__debugbreak();
-		break;
+	{
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		uint8_t value = (opcode & 0x00FF);
+		if (cpu->registers[x] == value) cpu->programCounter += 2;
+		cpu->programCounter += 2;
+	}
+	break;
 
 	case 0x4000:
-		__debugbreak();
-		break;
+	{
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		uint8_t value = (opcode & 0x00FF);
+		if (cpu->registers[x] != value) cpu->programCounter += 2;
+		cpu->programCounter += 2;
+	}
+	break;
 
 	case 0x5000:
-		__debugbreak();
-		break;
+	{
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		uint8_t y = (opcode & 0x00F0) >> 4;
+		if (cpu->registers[x] == cpu->registers[y]) cpu->programCounter += 2;
+		cpu->programCounter += 2;
+	}
+	break;
 
 	case 0x6000:	// 0x6XNN Loads the value NN into register X
 	{
@@ -147,7 +162,7 @@ void cpu_cycle(Chip8_VM* cpu)
 		cpu->registers[x] = value;
 		cpu->programCounter += 2;
 	}
-		break;
+	break;
 
 	case 0x7000:	// 0x7XNN Adds the value NN to register X
 	{
@@ -156,15 +171,88 @@ void cpu_cycle(Chip8_VM* cpu)
 		cpu->registers[x] += value;
 		cpu->programCounter += 2;
 	}
-		break;
+	break;
 
-	case 0x8000:
-		__debugbreak();
+	case 0x8000:	// 0x8XY0 - 0x8XY7, 0x8XYE
+	{
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		uint8_t y = (opcode & 0x00F0) >> 4;
+
+		switch (opcode & 0x000F)
+		{
+		case 0x0:	// Assign
+			cpu->registers[x] = cpu->registers[y];
+			cpu->programCounter += 2;
+			break;
+		case 0x1:	// Bitwise or
+			cpu->registers[x] |= cpu->registers[y];
+			cpu->programCounter += 2;
+			break;
+		case 0x2:	// Bitwsie and
+			cpu->registers[x] &= cpu->registers[y];
+			cpu->programCounter += 2;
+			break;
+		case 0x3:	// Bitwise xor
+			cpu->registers[x] ^= cpu->registers[y];
+			cpu->programCounter += 2;
+			break;
+		case 0x4:	// Vx += Vy (sets carry flag VF to 1, if there is carry)
+		{
+			uint16_t result = cpu->registers[x] + cpu->registers[y];
+			cpu->registers[x] = result & 0x00FF;
+			if (result > 255) cpu->registers[0xF] = 1;
+			else cpu->registers[0xF] = 0;
+			cpu->programCounter += 2;
+		}
 		break;
+		case 0x5:	// Vx -= Vy (sets VF to 1 if Vx >= Vy)
+		{
+			uint8_t x_value = cpu->registers[x];
+			cpu->registers[x] -= cpu->registers[y];
+			if (x_value >= cpu->registers[y]) cpu->registers[0xF] = 1;
+			else cpu->registers[0xF] = 0;
+			cpu->programCounter += 2;
+		}
+			break;
+		case 0x6:	// Vx >>= 1 (Stores lsb in VF)
+		{
+			uint8_t lsb = cpu->registers[x] & 0x1;
+			cpu->registers[x] >>= 1;
+			cpu->registers[0xF] = lsb;
+			cpu->programCounter += 2;
+		}
+		break;
+		case 0x7:	// Vx -= Vy (sets VF to 1 if Vy >= Vx)
+		{
+			uint8_t x_value = cpu->registers[x];
+			cpu->registers[x] = cpu->registers[y] - cpu->registers[x];
+			if (cpu->registers[y] >= x_value) cpu->registers[0xF] = 1;
+			else cpu->registers[0xF] = 0;
+			cpu->programCounter += 2;
+		}
+			break;
+		case 0xE:
+		{
+			uint8_t msb = (cpu->registers[x] & 0x80) >> 7;
+			cpu->registers[x] <<= 1;
+			cpu->registers[0xF] = msb;
+			cpu->programCounter += 2;
+		}
+		break;
+		default:
+			break;
+		}
+	}
+	break;
 
 	case 0x9000:
-		__debugbreak();
-		break;
+	{
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		uint8_t y = (opcode & 0x00F0) >> 4;
+		if (cpu->registers[x] != cpu->registers[y]) cpu->programCounter += 2;
+		cpu->programCounter += 2;
+	}
+	break;
 
 	case 0xA000:	// 0xANNN Loads the value NNN into index register
 		cpu->indexRegister = opcode & 0x0FFF;
@@ -180,12 +268,12 @@ void cpu_cycle(Chip8_VM* cpu)
 		break;
 
 
-	/*
-	DXYN - Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels and a height of N pixels. 
-	Each row of 8 pixels is read as bit-coded starting from memory location I; I value does not change after the execution of this instruction. 
-	As described above, VF is set to 1 if any screen pixels are flipped from set to unset when the sprite is drawn, and to 0 if that does not happen
-	(https://en.wikipedia.org/wiki/CHIP-8)
-	*/
+		/*
+		DXYN - Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels and a height of N pixels.
+		Each row of 8 pixels is read as bit-coded starting from memory location I; I value does not change after the execution of this instruction.
+		As described above, VF is set to 1 if any screen pixels are flipped from set to unset when the sprite is drawn, and to 0 if that does not happen
+		(https://en.wikipedia.org/wiki/CHIP-8)
+		*/
 	case 0xD000:
 	{
 		uint8_t x = (opcode & 0x0F00) >> 8;
@@ -219,16 +307,60 @@ void cpu_cycle(Chip8_VM* cpu)
 		}
 		cpu->programCounter += 2;
 	}
-		break;
+	break;
 
 	case 0xE000:
 		__debugbreak();
 		break;
 
 	case 0xF000:
-		__debugbreak();
+	{
+
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		switch (opcode & 0x00FF)
+		{
+
+		case 0x29:
+			cpu->indexRegister = cpu->registers[x] * 5;
+			cpu->programCounter += 2;
+			break;
+
+		case 0x33:
+			cpu->programCounter += 2;
+			break;
+
+		case 0x1E:
+			cpu->indexRegister += cpu->registers[x];
+			cpu->programCounter += 2;
+			break;
+
+		case 0x65:
+			for (uint8_t i = 0; i <= x; i++)
+			{
+				cpu->registers[i] = cpu->memory[cpu->indexRegister + i];
+			}
+			cpu->programCounter += 2;
+			break;
+
+		case 0x55:
+			for (uint8_t i = 0; i <= x; i++)
+			{
+				cpu->memory[cpu->indexRegister + i] = cpu->registers[i];
+			}
+			cpu->programCounter += 2;
+			break;
+
+		case 0x0A:
+			std::cin.get();
+			break;
+
+		default:
+			__debugbreak();
+
+		}
 		break;
 
+	}
 	default:
 		std::cout << "[-] Invalid instruction: " << std::hex << std::uppercase << opcode << "\n";
 		cpu->programCounter += 2;
