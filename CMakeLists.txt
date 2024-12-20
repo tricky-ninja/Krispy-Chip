@@ -38,7 +38,7 @@ else()
 	target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC PRODUCTION_BUILD=0) 
 endif()
 
-target_sources("${CMAKE_PROJECT_NAME}" PRIVATE ${SOURCE_FILES})
+target_sources("${CMAKE_PROJECT_NAME}" PRIVATE ${SOURCE_FILES} "include/platform.h")
 
 if(MSVC)
 	target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC _CRT_SECURE_NO_WARNINGS) # disable warnings from being shown as errors

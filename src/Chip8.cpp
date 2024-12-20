@@ -1,5 +1,9 @@
 #include <Chip8.h>
 #include <iostream>
+#include <raylib.h>
+#include <thread>
+#include <platform.h>
+#include <stdlib.h>
 
 static unsigned char chip8_fontset[80] =
 {
@@ -86,13 +90,18 @@ void load_rom(Chip8_VM* cpu, const char* filepath)
 void update_timers(Chip8_VM* cpu)
 {
 	if (cpu->delayTimer > 0) cpu->delayTimer -= 1;
-	if (cpu->soundTimer > 0) cpu->soundTimer -= 1;
+	if (cpu->soundTimer > 0)
+	{
+		//std::thread beep(platform_beep, 640, cpu->soundTimer / 60.0);
+		cpu->soundTimer -=1;
+		//beep.detach();
+	}
 }
 
 void cpu_cycle(Chip8_VM* cpu)
 {
 	uint16_t opcode = cpu->memory[cpu->programCounter] << 8 | cpu->memory[cpu->programCounter + 1];
-	std::cout << std::hex << std::uppercase << opcode << "\n";
+	//std::cout << std::hex << std::uppercase << opcode << "\n";
 	switch (opcode & 0xF000)
 	{
 
@@ -114,6 +123,7 @@ void cpu_cycle(Chip8_VM* cpu)
 		else
 		{
 			std::cout << "[-] Invalid instruction: " << std::hex << std::uppercase << opcode << "\n";
+			__debugbreak();
 			cpu->programCounter += 2;
 		}
 		break;
@@ -187,14 +197,17 @@ void cpu_cycle(Chip8_VM* cpu)
 		case 0x1:	// Bitwise or
 			cpu->registers[x] |= cpu->registers[y];
 			cpu->programCounter += 2;
+			if (cpu->quirks[QUIRK_VF_RESET]) cpu->registers[0xF] = 0;
 			break;
 		case 0x2:	// Bitwsie and
 			cpu->registers[x] &= cpu->registers[y];
 			cpu->programCounter += 2;
+			if (cpu->quirks[QUIRK_VF_RESET]) cpu->registers[0xF] = 0;
 			break;
 		case 0x3:	// Bitwise xor
 			cpu->registers[x] ^= cpu->registers[y];
 			cpu->programCounter += 2;
+			if (cpu->quirks[QUIRK_VF_RESET]) cpu->registers[0xF] = 0;
 			break;
 		case 0x4:	// Vx += Vy (sets carry flag VF to 1, if there is carry)
 		{
@@ -213,11 +226,12 @@ void cpu_cycle(Chip8_VM* cpu)
 			else cpu->registers[0xF] = 0;
 			cpu->programCounter += 2;
 		}
-			break;
-		case 0x6:	// Vx >>= 1 (Stores lsb in VF)
+		break;
+		case 0x6:	// Vx  = Vy >> 1 (Stores lsb in VF)
 		{
-			uint8_t lsb = cpu->registers[x] & 0x1;
-			cpu->registers[x] >>= 1;
+			uint8_t value = cpu->quirks[QUIRK_SHIFT] ? cpu->registers[x] : cpu->registers[y];
+			uint8_t lsb = value & 0x1;
+			cpu->registers[x] = value >> 1;
 			cpu->registers[0xF] = lsb;
 			cpu->programCounter += 2;
 		}
@@ -230,17 +244,20 @@ void cpu_cycle(Chip8_VM* cpu)
 			else cpu->registers[0xF] = 0;
 			cpu->programCounter += 2;
 		}
-			break;
+		break;
 		case 0xE:
 		{
-			uint8_t msb = (cpu->registers[x] & 0x80) >> 7;
-			cpu->registers[x] <<= 1;
+			uint8_t value = cpu->quirks[QUIRK_SHIFT] ? cpu->registers[x] : cpu->registers[y];
+			uint8_t msb = (value & 0x80) >> 7;
+			cpu->registers[x] = value << 1;
 			cpu->registers[0xF] = msb;
 			cpu->programCounter += 2;
 		}
 		break;
 		default:
-			break;
+			std::cout << "[-] Invalid instruction: " << std::hex << std::uppercase << opcode << "\n";
+			__debugbreak();
+			cpu->programCounter += 2;
 		}
 	}
 	break;
@@ -260,11 +277,21 @@ void cpu_cycle(Chip8_VM* cpu)
 		break;
 
 	case 0xB000:
-		__debugbreak();
-		break;
+	{
+		uint16_t addr = opcode & 0x0FFF;
+		cpu->programCounter = cpu->registers[0] + addr;
+	}
+	break;
 
 	case 0xC000:
-		__debugbreak();
+	{
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		uint8_t mask = (opcode & 0x00FF);
+		uint8_t randValue = rand() % 256;
+		cpu->registers[x] = randValue & mask;
+		cpu->programCounter += 2;
+
+	}
 		break;
 
 
@@ -280,8 +307,8 @@ void cpu_cycle(Chip8_VM* cpu)
 		uint8_t y = (opcode & 0x00F0) >> 4;
 		uint8_t n = opcode & 0x000F;
 
-		uint8_t startX = cpu->registers[x];
-		uint8_t startY = cpu->registers[y];
+		uint8_t startX = cpu->registers[x] % 64;
+		uint8_t startY = cpu->registers[y] % 32;
 
 		cpu->registers[0xF] = 0;
 
@@ -291,11 +318,20 @@ void cpu_cycle(Chip8_VM* cpu)
 
 			for (unsigned x = 0; x < 8; x++)
 			{
+
 				// Extracts the xth bit from the row and checks if it is 1
 				if ((row & (0x80 >> x)) != 0)
 				{
-					uint8_t xCoord = (startX + x) % 64;
-					uint8_t yCoord = (startY + y) % 64;
+					uint8_t xCoord = (startX + x);
+					uint8_t yCoord = (startY + y);
+
+					if (!cpu->quirks[QUIRK_CLIP])
+					{
+						xCoord %= 64;
+						yCoord %= 32;
+					}
+
+					if (xCoord >= 64 || yCoord >= 32) continue;
 
 					unsigned index = xCoord + yCoord * 64;
 
@@ -306,12 +342,31 @@ void cpu_cycle(Chip8_VM* cpu)
 			}
 		}
 		cpu->programCounter += 2;
+		if (cpu->quirks[QUIRK_DISP_WAIT]) cpu->breakCycle = true;
 	}
 	break;
 
 	case 0xE000:
-		__debugbreak();
-		break;
+	{
+		uint8_t key = cpu->registers[(opcode & 0x0F00) >> 8];
+		key &= 0xF;
+		if ((opcode & 0x00FF) == 0x9E)
+		{
+			if (IsKeyDown(cpu->keyMapping[key])) cpu->programCounter += 2;
+		}
+		else if ((opcode & 0x00FF) == 0xA1)
+		{
+			if (!IsKeyDown(cpu->keyMapping[key])) cpu->programCounter += 2;
+		}
+		else
+		{
+			std::cout << "[-] Invalid instruction: " << std::hex << std::uppercase << opcode << "\n";
+			__debugbreak();
+
+		}
+		cpu->programCounter += 2;
+	}
+	break;
 
 	case 0xF000:
 	{
@@ -319,13 +374,31 @@ void cpu_cycle(Chip8_VM* cpu)
 		uint8_t x = (opcode & 0x0F00) >> 8;
 		switch (opcode & 0x00FF)
 		{
-
-		case 0x29:
-			cpu->indexRegister = cpu->registers[x] * 5;
+		case 0x07:
+			cpu->registers[(opcode & 0x0F00) >> 8] = cpu->delayTimer;
 			cpu->programCounter += 2;
 			break;
 
-		case 0x33:
+		// TODO: Fix the keydown to key release or keypress
+		case 0x0A:
+			for (uint8_t i = 0; i <= 0xF; i++)
+			{
+				if (IsKeyDown(cpu->keyMapping[i]))
+				{
+					cpu->registers[x] = i;
+					cpu->programCounter += 2;
+					break;
+				}
+			}
+			break;
+
+		case 0x15:
+			cpu->delayTimer = cpu->registers[(opcode & 0x0F00) >> 8];
+			cpu->programCounter += 2;
+			break;
+
+		case 0x18:
+			cpu->soundTimer = cpu->registers[(opcode & 0x0F00) >> 8];
 			cpu->programCounter += 2;
 			break;
 
@@ -334,28 +407,69 @@ void cpu_cycle(Chip8_VM* cpu)
 			cpu->programCounter += 2;
 			break;
 
-		case 0x65:
-			for (uint8_t i = 0; i <= x; i++)
-			{
-				cpu->registers[i] = cpu->memory[cpu->indexRegister + i];
-			}
+		case 0x29:
+			cpu->indexRegister = (cpu->registers[x] & 0xF) * 5;
 			cpu->programCounter += 2;
 			break;
+
+		case 0x33:
+		{
+			uint8_t num = cpu->registers[x];
+
+			uint8_t ones = num % 10;
+			num /= 10;
+
+			uint8_t tens = num % 10;
+			num /= 10;
+
+			uint8_t hundreds = num % 10;
+
+			cpu->memory[cpu->indexRegister] = hundreds;
+			cpu->memory[cpu->indexRegister + 1] = tens;
+			cpu->memory[cpu->indexRegister + 2] = ones;
+
+			cpu->programCounter += 2;
+		}
+		break;
 
 		case 0x55:
-			for (uint8_t i = 0; i <= x; i++)
+		{
+
+			uint8_t i;
+			for (i = 0; i <= x; i++)
 			{
-				cpu->memory[cpu->indexRegister + i] = cpu->registers[i];
+				cpu->memory[cpu->indexRegister+i] = cpu->registers[i];
+			}
+			if (cpu->quirks[QUIRK_MEM]) 
+			{
+				cpu->indexRegister += i;
+				if (!cpu->quirks[QUIRK_MEM_PLUS_ONE]) cpu->indexRegister -= 1;
 			}
 			cpu->programCounter += 2;
+		}
 			break;
 
-		case 0x0A:
-			std::cin.get();
+		case 0x65:
+		{
+
+			uint8_t i;
+			for (i = 0; i <= x; i++)
+			{
+				cpu->registers[i] = cpu->memory[cpu->indexRegister+i];
+			}
+			if (cpu->quirks[QUIRK_MEM])
+			{
+				cpu->indexRegister += i;
+				if (!cpu->quirks[QUIRK_MEM_PLUS_ONE]) cpu->indexRegister -= 1;
+			}
+			cpu->programCounter += 2;
+		}
 			break;
 
 		default:
+			std::cout << "[-] Invalid instruction: " << std::hex << std::uppercase << opcode << "\n";
 			__debugbreak();
+			cpu->programCounter += 2;
 
 		}
 		break;
@@ -363,6 +477,7 @@ void cpu_cycle(Chip8_VM* cpu)
 	}
 	default:
 		std::cout << "[-] Invalid instruction: " << std::hex << std::uppercase << opcode << "\n";
+		__debugbreak();
 		cpu->programCounter += 2;
 		break;
 	}
