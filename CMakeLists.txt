@@ -20,6 +20,8 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(thirdparty/raylib)
 add_subdirectory(thirdparty/glm)
+add_subdirectory(thirdparty/imgui-docking)
+add_subdirectory(thirdparty/rlImGui)
 
 
 file(GLOB_RECURSE SOURCE_FILES CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
@@ -49,4 +51,6 @@ endif()
 
 target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include/")
 
-target_link_libraries("${CMAKE_PROJECT_NAME}" PRIVATE glm raylib_static)
+target_link_libraries("${CMAKE_PROJECT_NAME}" PRIVATE 
+	raylib_static imgui rlimgui
+)
