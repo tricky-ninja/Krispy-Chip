@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <thread>
+#include <string>
 
 enum Quirks
 {
@@ -30,10 +31,11 @@ struct Chip8_VM
     std::thread audioThread;
     bool breakCycle = false;
     bool quirks[QUIRK_MAX];
+    std::string logs;
 
 };
 
 void init_vm(Chip8_VM* cpu);
-void load_rom(Chip8_VM* cpu, const char* filepath);
+int load_rom(Chip8_VM* cpu, const char* filepath);
 void update_timers(Chip8_VM* cpu);
 void cpu_cycle(Chip8_VM* cpu);

@@ -3,6 +3,7 @@
 #include <raylib.h>
 #include <cstdlib>
 #include <Chip8.h>  
+#include <string>
 
 
 namespace App
@@ -13,6 +14,8 @@ namespace App
 		unsigned width, height;
 		Chip8_VM cpu;
 		uint8_t ipf;
+		std::string logs;
+		bool running;
 	};
 
 	static Context context;

@@ -4,6 +4,8 @@
 #include <thread>
 #include <platform.h>
 #include <stdlib.h>
+#include <format>
+#include <regex>
 
 static unsigned char chip8_fontset[80] =
 {
@@ -28,7 +30,8 @@ static unsigned char chip8_fontset[80] =
 
 void init_vm(Chip8_VM* cpu)
 {
-	std::cout << "[+] Initialising virtual machine\n";
+	cpu->logs = "";
+	cpu->logs += "[+] Initialising virtual machine\n";
 	for (unsigned char i = 0; i < 16; i++)
 	{
 		cpu->registers[i] = 0;
@@ -54,14 +57,14 @@ void init_vm(Chip8_VM* cpu)
 
 }
 
-void load_rom(Chip8_VM* cpu, const char* filepath)
+int load_rom(Chip8_VM* cpu, const char* filepath)
 {
-	std::cout << "[+] Loading rom " << filepath << "\n";
+	cpu->logs += "[+] Loading rom " + std::string(filepath) + "\n";
 
 	FILE* file = fopen(filepath, "rb");
 	if (!file) {
-		std::cerr << "[-] Failed to open rom\n";
-		return;
+		cpu->logs += "[-] Failed to open rom\n";
+		return -1;
 	}
 
 	uint8_t buffer[1024];
@@ -72,18 +75,20 @@ void load_rom(Chip8_VM* cpu, const char* filepath)
 		for (size_t j = 0; j < bytesRead; ++j) {
 			cpu->memory[i++] = buffer[j];
 			if (i >= sizeof(cpu->memory)) {
-				std::cerr << "[-] ROM is too large to fit in memory\n";
+				cpu->logs += "[-] ROM is too large to fit in memory\n";
 				fclose(file);
-				return;
+				return -1;
 			}
 		}
 	}
 
 	if (bytesRead == 0 && i == 0x200) {
-		std::cerr << "[-] Error reading the ROM file\n";
+		cpu->logs += "[-] Error reading the ROM file\n";
+		fclose(file);
+		return -1;
 	}
+	return 0;
 
-	fclose(file);
 }
 
 
@@ -101,7 +106,7 @@ void update_timers(Chip8_VM* cpu)
 void cpu_cycle(Chip8_VM* cpu)
 {
 	uint16_t opcode = cpu->memory[cpu->programCounter] << 8 | cpu->memory[cpu->programCounter + 1];
-	//std::cout << std::hex << std::uppercase << opcode << "\n";
+	std::cout << std::hex << std::uppercase << opcode << "\n";
 	switch (opcode & 0xF000)
 	{
 
@@ -122,7 +127,9 @@ void cpu_cycle(Chip8_VM* cpu)
 		}
 		else
 		{
-			std::cout << "[-] Invalid instruction: " << std::hex << std::uppercase << opcode << "\n";
+			
+			cpu->logs += "[-] Invalid instruction: " + std::format<unsigned>("{:x}", opcode) + std::string("\n");
+			std::cout << "Invalid instruction: " << std::hex << std::uppercase << opcode;
 			__debugbreak();
 			cpu->programCounter += 2;
 		}
@@ -255,7 +262,7 @@ void cpu_cycle(Chip8_VM* cpu)
 		}
 		break;
 		default:
-			std::cout << "[-] Invalid instruction: " << std::hex << std::uppercase << opcode << "\n";
+			cpu->logs += "[-] Invalid instruction: " + std::format<unsigned>("{:x}", opcode) + std::string("\n");
 			__debugbreak();
 			cpu->programCounter += 2;
 		}
@@ -360,8 +367,9 @@ void cpu_cycle(Chip8_VM* cpu)
 		}
 		else
 		{
-			std::cout << "[-] Invalid instruction: " << std::hex << std::uppercase << opcode << "\n";
+			cpu->logs += "[-] Invalid instruction: " + std::format<unsigned>("{:x}", opcode) + std::string("\n");
 			__debugbreak();
+			cpu->programCounter += 2;
 
 		}
 		cpu->programCounter += 2;
@@ -467,7 +475,7 @@ void cpu_cycle(Chip8_VM* cpu)
 			break;
 
 		default:
-			std::cout << "[-] Invalid instruction: " << std::hex << std::uppercase << opcode << "\n";
+			cpu->logs += "[-] Invalid instruction: " + std::format<unsigned>("{:x}", opcode) + std::string("\n");
 			__debugbreak();
 			cpu->programCounter += 2;
 
@@ -476,7 +484,7 @@ void cpu_cycle(Chip8_VM* cpu)
 
 	}
 	default:
-		std::cout << "[-] Invalid instruction: " << std::hex << std::uppercase << opcode << "\n";
+		cpu->logs += "[-] Invalid instruction: " + std::format<unsigned>("{:x}", opcode) + std::string("\n");
 		__debugbreak();
 		cpu->programCounter += 2;
 		break;
